@@ -70,6 +70,7 @@ def compute_smoothness(
     traj_dt: torch.Tensor,
     min_dt: float,
     max_dt: float,
+    epsilon: float = 1e-6,
 ):
     # compute scaled dt:
     # h = int(vel.shape[-2] / 2)
@@ -92,7 +93,7 @@ def compute_smoothness(
 
     # clamp dt score:
 
-    dt_score = torch.clamp(dt_score, min_dt, max_dt)
+    dt_score = torch.clamp(dt_score * (1 + epsilon), min_dt, max_dt)
     scale_dt = (1 / dt_score).view(-1, 1, 1)
     abs_acc = torch.abs(acc) * (scale_dt**2)
     # mean_acc_val = torch.max(torch.mean(abs_acc, dim=-1), dim=-1)[0]

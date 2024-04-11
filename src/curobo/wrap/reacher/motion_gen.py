@@ -17,6 +17,7 @@ import math
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
+import copy
 
 # Third Party
 import numpy as np
@@ -123,6 +124,9 @@ class MotionGenConfig:
     #: interpolation dt to use for output trajectory.
     interpolation_dt: float = 0.01
 
+    #: minimum dt that will be used to clamp optimized dt.
+    min_dt: float = 0.01
+
     #: scale initial dt by this value to finetune trajectory optimization.
     finetune_dt_scale: float = 0.9
 
@@ -155,6 +159,7 @@ class MotionGenConfig:
         trajopt_tsteps: int = 32,
         interpolation_steps: int = 5000,
         interpolation_dt: float = 0.02,
+        min_dt: float = 0.02,
         interpolation_type: InterpolateType = InterpolateType.LINEAR_CUDA,
         use_cuda_graph: bool = True,
         self_collision_check: bool = True,
@@ -234,6 +239,7 @@ class MotionGenConfig:
             trajopt_tsteps: _description_
             interpolation_steps: _description_
             interpolation_dt: _description_
+            min_dt: _description_
             interpolation_type: _description_
             use_cuda_graph: _description_
             self_collision_check: _description_
@@ -324,7 +330,7 @@ class MotionGenConfig:
                 max_dt = maximum_trajectory_time / trajopt_tsteps
             if acceleration_scale is not None:
                 max_dt = max_dt * (1.0 / np.sqrt(min(acceleration_scale)))
-            traj_evaluator_config = TrajEvaluatorConfig(min_dt=interpolation_dt, max_dt=max_dt)
+            traj_evaluator_config = TrajEvaluatorConfig(min_dt=min_dt, max_dt=max_dt)
         if maximum_trajectory_dt is not None:
             if trajopt_dt is None:
                 trajopt_dt = maximum_trajectory_dt
@@ -610,6 +616,7 @@ class MotionGenConfig:
             graph_trajopt_iters=graph_trajopt_iters,
             store_debug_in_result=store_debug_in_result,
             interpolation_dt=interpolation_dt,
+            min_dt=min_dt,
             finetune_dt_scale=finetune_dt_scale,
             use_cuda_graph=use_cuda_graph,
         )
@@ -1648,8 +1655,9 @@ class MotionGen(MotionGenConfig):
                         seed_override = solve_state.num_trajopt_seeds * self.noisy_trajopt_seeds
                     scaled_dt = torch.clamp(
                         opt_dt * self.finetune_dt_scale,
-                        self.trajopt_solver.interpolation_dt,
+                        self.min_dt,
                     )
+                    og_dt = copy.deepcopy(self.js_trajopt_solver.solver_dt)
                     self.finetune_trajopt_solver.update_solver_dt(scaled_dt.item())
 
                     traj_result = self._solve_trajopt_from_solve_state(
@@ -1659,6 +1667,7 @@ class MotionGen(MotionGenConfig):
                         trajopt_instance=self.finetune_trajopt_solver,
                         num_seeds_override=seed_override,
                     )
+                    self.finetune_trajopt_solver.update_solver_dt(og_dt.item())
 
                 result.finetune_time = traj_result.solve_time
 
@@ -1850,10 +1859,10 @@ class MotionGen(MotionGenConfig):
                     og_solve_time = traj_result.solve_time
 
                     scaled_dt = torch.clamp(
-                        torch.max(traj_result.optimized_dt[traj_result.success]),
-                        self.trajopt_solver.interpolation_dt,
+                        torch.max(traj_result.optimized_dt[traj_result.success]) * self.finetune_dt_scale,
+                        self.min_dt,
                     )
-                    og_dt = self.js_trajopt_solver.solver_dt
+                    og_dt = copy.deepcopy(self.js_trajopt_solver.solver_dt)
                     self.js_trajopt_solver.update_solver_dt(scaled_dt.item())
 
                     traj_result = self._solve_trajopt_from_solve_state(
@@ -2101,8 +2110,9 @@ class MotionGen(MotionGenConfig):
                     scaled_dt = torch.clamp(
                         torch.max(traj_result.optimized_dt[traj_result.success])
                         * self.finetune_dt_scale,
-                        self.trajopt_solver.interpolation_dt,
+                        self.min_dt,
                     )
+                    og_dt = copy.deepcopy(self.js_trajopt_solver.solver_dt)
                     self.finetune_trajopt_solver.update_solver_dt(scaled_dt.item())
 
                     traj_result = self._solve_trajopt_from_solve_state(
@@ -2112,6 +2122,7 @@ class MotionGen(MotionGenConfig):
                         trajopt_instance=self.finetune_trajopt_solver,
                         num_seeds_override=solve_state.num_trajopt_seeds,
                     )
+                    self.finetune_trajopt_solver.update_solver_dt(og_dt.item())
 
                 result.finetune_time = traj_result.solve_time
 
