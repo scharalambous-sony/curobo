@@ -56,7 +56,7 @@ from curobo.util_file import (
 )
 from curobo.wrap.reacher.evaluator import TrajEvaluator, TrajEvaluatorConfig
 from curobo.wrap.reacher.ik_solver import IKResult, IKSolver, IKSolverConfig
-from curobo.wrap.reacher.trajopt import TrajOptSolver, TrajOptSolverConfig
+from curobo.wrap.reacher.trajopt import TrajOptSolver, TrajOptSolverConfig, TrajResult
 from curobo.wrap.reacher.types import ReacherSolveState, ReacherSolveType
 
 
@@ -696,6 +696,9 @@ class MotionGenResult:
     #: stores the index of the goal pose reached when planning for a goalset.
     goalset_index: Optional[torch.Tensor] = None
 
+    #: stores rollout metrics from trajresult
+    metrics: Optional[TrajResult] = None
+
     def clone(self):
         m = MotionGenResult(
             self.success.clone(),
@@ -722,6 +725,7 @@ class MotionGenResult:
             ),
             interpolation_dt=self.interpolation_dt,
             goalset_index=self.goalset_index.clone() if self.goalset_index is not None else None,
+            metrics=self.metrics
         )
         return m
 
@@ -1680,6 +1684,7 @@ class MotionGen(MotionGenConfig):
             result.trajopt_time = traj_result.solve_time
             result.trajopt_attempts = 1
             result.success = traj_result.success
+            result.metrics = traj_result.metrics
 
             if torch.count_nonzero(result.success) == 0:
                 result.status = "Opt Fail"
@@ -1887,6 +1892,7 @@ class MotionGen(MotionGenConfig):
             result.trajopt_time = traj_result.solve_time
             result.trajopt_attempts = 1
             result.success = traj_result.success
+            result.metrics = traj_result.metrics
 
             result.interpolated_plan = traj_result.interpolated_solution.trim_trajectory(
                 0, traj_result.path_buffer_last_tstep[0]
