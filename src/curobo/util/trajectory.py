@@ -541,7 +541,7 @@ def calculate_tsteps(
     max_jerk: torch.Tensor,
     raw_dt: torch.Tensor,
     min_dt: float,
-    horizon: int,
+    horizon: int, # traj_tsteps
     optimize_dt: bool = True,
 ):
     # compute scaled dt:
@@ -550,6 +550,7 @@ def calculate_tsteps(
     )
     if not optimize_dt:
         opt_dt[:] = raw_dt
+    # Determines number of tsteps in intertpolated plan
     traj_steps = (torch.ceil((horizon - 1) * ((opt_dt) / interpolation_dt))).to(dtype=torch.int32)
     steps_max = torch.max(traj_steps)
     return traj_steps, steps_max, opt_dt

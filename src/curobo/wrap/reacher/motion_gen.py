@@ -1648,6 +1648,7 @@ class MotionGen(MotionGenConfig):
             # run finetune
             if plan_config.enable_finetune_trajopt and torch.count_nonzero(traj_result.success) > 0:
                 with profiler.record_function("motion_gen/finetune_trajopt"):
+                    log_info("MG: Finetune TO")
                     seed_traj = traj_result.raw_action.clone()  # solution.position.clone()
                     seed_traj = seed_traj.contiguous()
                     og_solve_time = traj_result.solve_time
@@ -1662,6 +1663,7 @@ class MotionGen(MotionGenConfig):
                         self.min_dt,
                     )
                     og_dt = copy.deepcopy(self.js_trajopt_solver.solver_dt)
+                    log_info(f"Solver dt updated to {scaled_dt} from {og_dt}")
                     self.finetune_trajopt_solver.update_solver_dt(scaled_dt.item())
 
                     traj_result = self._solve_trajopt_from_solve_state(
@@ -1671,6 +1673,7 @@ class MotionGen(MotionGenConfig):
                         trajopt_instance=self.finetune_trajopt_solver,
                         num_seeds_override=seed_override,
                     )
+                    log_info(f"Solver dt updated back to {og_dt}")
                     self.finetune_trajopt_solver.update_solver_dt(og_dt.item())
 
                 result.finetune_time = traj_result.solve_time
@@ -1715,10 +1718,11 @@ class MotionGen(MotionGenConfig):
         graph_success = 0
         if len(start_state.shape) == 1:
             log_error("Joint state should be not a vector (dof) should be (bxdof)")
-
+        # Initialize result
         result = MotionGenResult(cspace_error=torch.zeros((1), device=self.tensor_args.device))
-        # do graph search:
+        # Do graph search if enable_graph is set to true
         if plan_config.enable_graph:
+            # Initialize and populate start and goal configs
             start_config = torch.zeros(
                 (solve_state.num_graph_seeds, self.js_trajopt_solver.dof),
                 device=self.tensor_args.device,
@@ -1731,17 +1735,20 @@ class MotionGen(MotionGenConfig):
             if plan_config.enable_opt:
                 interpolation_steps = self.js_trajopt_solver.action_horizon
             log_info("MG: running GP")
+            # Run graph search. graph_result contains the plan alongside success etc
             graph_result = self.graph_search(start_config, goal_config, interpolation_steps)
             trajopt_seed_success = graph_result.success
 
             graph_success = torch.count_nonzero(graph_result.success).item()
             result.graph_time = graph_result.solve_time
             result.solve_time += graph_result.solve_time
+            # If graph search was successful
             if graph_success > 0:
                 result.graph_plan = graph_result.interpolated_plan
                 result.interpolated_plan = graph_result.interpolated_plan
 
                 result.used_graph = True
+                # If enable_opt is true set seed for trajopt
                 if plan_config.enable_opt:
                     trajopt_seed = (
                         result.graph_plan.position.view(
@@ -1765,6 +1772,7 @@ class MotionGen(MotionGenConfig):
                         1, solve_state.num_trajopt_seeds
                     )
                     trajopt_newton_iters = self.graph_trajopt_iters
+                # If enable_opt is false return shortest path
                 else:
                     _, idx = torch.topk(
                         graph_result.path_length[graph_result.success], k=1, largest=False
@@ -1782,6 +1790,7 @@ class MotionGen(MotionGenConfig):
                     ]
                     result.success = torch.as_tensor([True], device=self.tensor_args.device)
                     return result
+            # If graph search was unsuccessful return unsuccessful result
             else:
                 result.success = torch.as_tensor([False], device=self.tensor_args.device)
                 result.status = "Graph Fail"
@@ -1793,9 +1802,10 @@ class MotionGen(MotionGenConfig):
                 if plan_config.need_graph_success:
                     return result
 
-        # do trajopt:
+        # If enable_opt is set to true do trajopt
         if plan_config.enable_opt:
             with profiler.record_function("motion_gen/setup_trajopt_seeds"):
+                log_info("MG: Setting up TO seeds")
                 # self._trajopt_goal_config[:, :ik_success] = goal_config
 
                 goal = Goal(
@@ -1856,18 +1866,23 @@ class MotionGen(MotionGenConfig):
                 result.debug_info["trajopt_result"] = traj_result
             if torch.count_nonzero(traj_result.success) == 0:
                 result.status = "TrajOpt Fail"
+                log_info("TO failed")
             # run finetune
             if plan_config.enable_finetune_trajopt and torch.count_nonzero(traj_result.success) > 0:
                 with profiler.record_function("motion_gen/finetune_trajopt"):
+                    log_info("MG: Finetune TO")
                     seed_traj = traj_result.raw_action.clone()  # solution.position.clone()
                     seed_traj = seed_traj.contiguous()
                     og_solve_time = traj_result.solve_time
 
+                    # Take the maximum optimized_dt of all successful trajectory results
+                    # and clamp that to a minimum
                     scaled_dt = torch.clamp(
                         torch.max(traj_result.optimized_dt[traj_result.success]) * self.finetune_dt_scale,
                         self.min_dt,
                     )
                     og_dt = copy.deepcopy(self.js_trajopt_solver.solver_dt)
+                    log_info(f"Solver dt updated to {scaled_dt} from {og_dt}")
                     self.js_trajopt_solver.update_solver_dt(scaled_dt.item())
 
                     traj_result = self._solve_trajopt_from_solve_state(
@@ -1877,6 +1892,7 @@ class MotionGen(MotionGenConfig):
                         trajopt_instance=self.js_trajopt_solver,
                         num_seeds_override=solve_state.num_trajopt_seeds * self.noisy_trajopt_seeds,
                     )
+                    log_info(f"Solver dt updated back to {og_dt}")
                     self.js_trajopt_solver.update_solver_dt(og_dt)
 
                 result.finetune_time = traj_result.solve_time
@@ -1886,6 +1902,7 @@ class MotionGen(MotionGenConfig):
                     result.debug_info["finetune_trajopt_result"] = traj_result
                 if torch.count_nonzero(traj_result.success) == 0:
                     result.status = "Finetune Fail"
+                    log_info("MG: Finetune failed")
             elif plan_config.enable_finetune_trajopt:
                 traj_result.success = traj_result.success[0:1]
             result.solve_time += traj_result.solve_time + result.finetune_time
@@ -2109,6 +2126,7 @@ class MotionGen(MotionGenConfig):
             # run finetune
             if plan_config.enable_finetune_trajopt and torch.count_nonzero(traj_result.success) > 0:
                 with profiler.record_function("motion_gen/finetune_trajopt"):
+                    log_info("MG: Finetune TO")
                     seed_traj = traj_result.raw_action.clone()  # solution.position.clone()
                     seed_traj = seed_traj.contiguous()
                     og_solve_time = traj_result.solve_time
@@ -2120,6 +2138,7 @@ class MotionGen(MotionGenConfig):
                     )
                     og_dt = copy.deepcopy(self.js_trajopt_solver.solver_dt)
                     self.finetune_trajopt_solver.update_solver_dt(scaled_dt.item())
+                    log_info(f"Solver dt updated to {scaled_dt} from {og_dt}")
 
                     traj_result = self._solve_trajopt_from_solve_state(
                         goal,
@@ -2128,6 +2147,7 @@ class MotionGen(MotionGenConfig):
                         trajopt_instance=self.finetune_trajopt_solver,
                         num_seeds_override=solve_state.num_trajopt_seeds,
                     )
+                    log_info(f"Solver dt updated back to {og_dt}")
                     self.finetune_trajopt_solver.update_solver_dt(og_dt.item())
 
                 result.finetune_time = traj_result.solve_time
@@ -2898,6 +2918,7 @@ class MotionGen(MotionGenConfig):
         # NOTE: Currently only works for single environment. Need to rewrite for all modes
         # finetunes solution
         if traj_dt is not None:
+            log_info(f"Solver dt updated to {traj_dt}")
             self.finetune_trajopt_solver.update_solver_dt(traj_dt.item())
 
         # call trajopt with seed:
