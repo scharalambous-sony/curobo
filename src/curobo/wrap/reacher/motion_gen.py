@@ -171,7 +171,7 @@ class MotionGenConfig:
         num_ik_seeds: int = 32,
         num_graph_seeds: int = 1,
         num_trajopt_seeds: int = 4,
-        num_js_trajopt_seeds: int = 1,
+        num_js_trajopt_seeds: int = 4,
         num_batch_ik_seeds: int = 32,
         num_batch_trajopt_seeds: int = 1,
         num_trajopt_noisy_seeds: int = 1,
