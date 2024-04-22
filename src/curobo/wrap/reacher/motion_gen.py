@@ -171,6 +171,7 @@ class MotionGenConfig:
         num_ik_seeds: int = 32,
         num_graph_seeds: int = 1,
         num_trajopt_seeds: int = 4,
+        num_js_trajopt_seeds: int = 1,
         num_batch_ik_seeds: int = 32,
         num_batch_trajopt_seeds: int = 1,
         num_trajopt_noisy_seeds: int = 1,
@@ -506,6 +507,7 @@ class MotionGenConfig:
             minimize_jerk=minimize_jerk,
             filter_robot_command=filter_robot_command,
             optimize_dt=optimize_dt,
+            num_seeds=num_js_trajopt_seeds,
         )
         js_trajopt_solver = TrajOptSolver(js_trajopt_cfg)
 
