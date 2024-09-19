@@ -78,6 +78,13 @@ class JointState(State):
         if isinstance(self.position, torch.Tensor):
             self.tensor_args = TensorDeviceType(self.position.device)
 
+        if self.velocity is None:
+            self.velocity = self.position * 0.0
+        if self.acceleration is None:
+            self.acceleration = self.position * 0.0
+        if self.jerk is None:
+            self.jerk = self.position * 0.0
+
     @staticmethod
     def from_numpy(
         joint_names: List[str],
