@@ -2018,6 +2018,28 @@ class MotionGen(MotionGenConfig):
             )
         return result
 
+    def plan_single_js_from_seed(
+            self,
+            js_goal: Goal,
+            seed_traj: torch.Tensor,
+    ) -> MotionGenResult:
+        traj_result = self.js_trajopt_solver._solve_from_solve_state(
+            self.js_trajopt_solver._solve_state,
+            js_goal,
+            num_seeds=self.js_trajopt_solver.num_seeds,
+            seed_traj=seed_traj,
+        )
+        result = MotionGenResult(
+            optimized_dt=traj_result.optimized_dt,
+            optimized_plan=traj_result.solution,
+            success=traj_result.success,
+            solve_time=traj_result.solve_time,
+            interpolated_plan=traj_result.interpolated_solution.trim_trajectory(
+                0, traj_result.path_buffer_last_tstep[0]
+            ),
+        )
+        return result
+
     def solve_trajopt(
         self,
         goal: Goal,
